@@ -41,6 +41,19 @@ public class JwtAuthenticationGatewayFilterFactory extends AbstractGatewayFilter
             String jwt = authorizationHeader.replace("Bearer ", "");
             log.info("jwt : {}", jwt);
 
+            if(!request.getHeaders().containsKey(HttpHeaders.AUTHORIZATION)) {
+                return onError(exchange, "no authorization header", HttpStatus.UNAUTHORIZED);
+            }
+
+            if(!isJwtValid(jwt, exchange)) {
+                return onError(exchange, "JWT token is not valid", HttpStatus.UNAUTHORIZED);
+            }
+
+            // 헤더 출력
+            request.getHeaders().forEach((k, v) -> {
+                log.info("{} : {}", k, v);
+            });
+
             String subject = decode(jwt);
             request.mutate()
                     .header("user", subject)
@@ -58,18 +71,7 @@ public class JwtAuthenticationGatewayFilterFactory extends AbstractGatewayFilter
                 return chain.filter(exchange);
             }
 
-            if(!request.getHeaders().containsKey(HttpHeaders.AUTHORIZATION)) {
-                return onError(exchange, "no authorization header", HttpStatus.UNAUTHORIZED);
-            }
 
-            if(!isJwtValid(jwt, exchange)) {
-                return onError(exchange, "JWT token is not valid", HttpStatus.UNAUTHORIZED);
-            }
-
-            // 헤더 출력
-            request.getHeaders().forEach((k, v) -> {
-                log.info("{} : {}", k, v);
-            });
 
             // Custom Post Filter
             return chain.filter(exchange);
