@@ -1,6 +1,8 @@
 package com.example.farmusgateway.filter;
 
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
@@ -21,6 +23,8 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Map;
 
 @Component
 @Slf4j
@@ -132,18 +136,30 @@ public class JwtAuthenticationGatewayFilterFactory extends AbstractGatewayFilter
     }
 
     // Mono, Flux -> Spring WebFlux
+
     private Mono<Void> onError(ServerWebExchange exchange, String error, HttpStatus httpStatus) {
         ServerHttpResponse response = exchange.getResponse();
         response.setStatusCode(httpStatus);
         response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
 
-        String errorMessage = "{\"error\": \"" + error + "\"}";
-        DataBuffer buffer = response.bufferFactory().wrap(errorMessage.getBytes(StandardCharsets.UTF_8));
+        Map<String, String> errorResponse = new HashMap<>();
+        errorResponse.put("error", error);
+
+        ObjectMapper objectMapper = new ObjectMapper();
+        byte[] errorResponseBytes;
+        try {
+            errorResponseBytes = objectMapper.writeValueAsBytes(errorResponse);
+        } catch (JsonProcessingException e) {
+            errorResponseBytes = "{\"error\": \"Internal Server Error\"}".getBytes(StandardCharsets.UTF_8);
+        }
+
+        DataBuffer buffer = response.bufferFactory().wrap(errorResponseBytes);
 
         log.error(error);
 
         return response.writeWith(Mono.just(buffer)).then(response.setComplete());
     }
+
 
     @Data
     public static class Config {
