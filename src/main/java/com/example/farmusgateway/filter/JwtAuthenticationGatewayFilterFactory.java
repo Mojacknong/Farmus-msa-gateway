@@ -19,12 +19,9 @@ import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
-import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
-import java.util.Map;
 
 @Component
 @Slf4j
@@ -38,128 +35,76 @@ public class JwtAuthenticationGatewayFilterFactory extends AbstractGatewayFilter
 
     }
 
-    // login -> token -> users (with token) -> header(include token)
+
     @Override
     public GatewayFilter apply(Config config) {
         return (exchange, chain) -> {
             ServerHttpRequest request = exchange.getRequest();
+            ServerHttpResponse response = exchange.getResponse();
 
             String authorizationHeader = request.getHeaders().get(HttpHeaders.AUTHORIZATION).get(0);
-            log.info("authorizationHeader : {}", authorizationHeader);
+            log.info("authorizationHeader: {}", authorizationHeader);
             String jwt = authorizationHeader.replace("Bearer ", "");
-            log.info("jwt : {}", jwt);
+            log.info("jwt: {}", jwt);
 
-            if(!request.getHeaders().containsKey(HttpHeaders.AUTHORIZATION)) {
-                return onError(exchange, "no authorization header", HttpStatus.UNAUTHORIZED);
-            }
+            try {
+                String subject = Jwts.parserBuilder().setSigningKey(secret).build()
+                        .parseClaimsJws(jwt).getBody()
+                        .getSubject();
 
-            if(!isJwtValid(jwt, exchange)) {
-                return onError(exchange, "JWT token is not valid", HttpStatus.UNAUTHORIZED);
-            }
+                if (subject == null || subject.isEmpty()) {
+                    return onError(response, "JWT token is not valid", HttpStatus.UNAUTHORIZED);
+                }
 
-            // 헤더 출력
-            request.getHeaders().forEach((k, v) -> {
-                log.info("{} : {}", k, v);
-            });
+                String decodedSubject = decode(jwt);
+                request.mutate().header("user", decodedSubject).build();
 
-            String subject = decode(jwt);
-            request.mutate()
-                    .header("user", subject)
-                    .build();
+                // get url after endpoint
+                int index = request.getURI().toString().indexOf("/api");
+                String url = request.getURI().toString().substring(index);
+                log.info("url: {}", url);
 
-            log.info("request.getURI().toString() : {}", request.getURI().toString());
+                if (url.equals("/api/user/reissue-token")) {
+                    return chain.filter(exchange);
+                }
 
-            // get url after endpoint
-            int index = request.getURI().toString().indexOf("/api");
-            String url = request.getURI().toString().substring(index);
-
-            log.info("url : {}", url);
-
-            if(url.equals("/api/user/reissue-token")) {
                 return chain.filter(exchange);
+            } catch (IllegalArgumentException e) {
+                return onError(response, "Invalid access token header", HttpStatus.BAD_REQUEST);
+            } catch (io.jsonwebtoken.security.SecurityException | MalformedJwtException e) {
+                return onError(response, "Verification error", HttpStatus.UNAUTHORIZED);
+            } catch (ExpiredJwtException e) {
+                return onError(response, "Token expired", HttpStatus.PRECONDITION_FAILED);
+            } catch (JwtException e) {
+                return onError(response, "JWT error", HttpStatus.UNAUTHORIZED);
             }
-
-
-
-            // Custom Post Filter
-            return chain.filter(exchange);
         };
     }
 
-    private boolean isJwtValid(String jwt, ServerWebExchange exchange) {
-        boolean returnValue = true;
-
-        try {
-            String subject = Jwts.parserBuilder().setSigningKey(secret).build()
-                    .parseClaimsJws(jwt).getBody()
-                    .getSubject();
-
-            log.info("subject : {}", subject);
-
-            if (subject == null || subject.isEmpty()) {
-                returnValue = false;
-                onError(exchange, "JWT token is not valid", HttpStatus.UNAUTHORIZED);
-            }
-        } catch (IllegalArgumentException e) {
-            returnValue = false;
-            onError(exchange, "Invalid access token header", HttpStatus.BAD_REQUEST);
-        } catch (io.jsonwebtoken.security.SecurityException | MalformedJwtException e) {
-            returnValue = false;
-            onError(exchange, "Verification error", HttpStatus.UNAUTHORIZED);
-        } catch (ExpiredJwtException e) {
-            returnValue = false;
-            onError(exchange, "Token expired", HttpStatus.PRECONDITION_FAILED);
-        } catch (JwtException e) {
-            returnValue = false;
-            onError(exchange, "JWT error", HttpStatus.UNAUTHORIZED);
-        }
-
-        return returnValue;
-    }
 
     public String decode(String token) {
 
         String subject = null;
-        try {
-            subject = Jwts.parser().setSigningKey(secret)
-                    .parseClaimsJws(token).getBody()
-                    .getSubject();
-        } catch(Exception ex) {
-            onError(null, "JWT error", HttpStatus.UNAUTHORIZED);
-        }
 
-        if(subject == null || subject.isEmpty()) {
-            onError(null, "JWT error", HttpStatus.UNAUTHORIZED);
-        }
+        subject = Jwts.parser().setSigningKey(secret)
+                .parseClaimsJws(token).getBody()
+                .getSubject();
 
         return subject;
     }
 
-    // Mono, Flux -> Spring WebFlux
+    private Mono<Void> onError(ServerHttpResponse response, String message, HttpStatus status) {
 
-    private Mono<Void> onError(ServerWebExchange exchange, String error, HttpStatus httpStatus) {
-        ServerHttpResponse response = exchange.getResponse();
-        response.setStatusCode(httpStatus);
+        int statusCode = status.value(); // 상태 코드 가져오기
+        response.setStatusCode(status);
         response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
 
-        Map<String, String> errorResponse = new HashMap<>();
-        errorResponse.put("error", error);
+        // JSON 포맷으로 응답 데이터 구성
+        String jsonResponse = "{\"message\": \"" + message + "\", \"code\":" + statusCode + "}";
 
-        ObjectMapper objectMapper = new ObjectMapper();
-        byte[] errorResponseBytes;
-        try {
-            errorResponseBytes = objectMapper.writeValueAsBytes(errorResponse);
-        } catch (JsonProcessingException e) {
-            errorResponseBytes = "{\"error\": \"Internal Server Error\"}".getBytes(StandardCharsets.UTF_8);
-        }
-
-        DataBuffer buffer = response.bufferFactory().wrap(errorResponseBytes);
-
-        log.error(error);
-
-        return response.writeWith(Mono.just(buffer)).then(response.setComplete());
+        DataBuffer buffer = response.bufferFactory().wrap(jsonResponse.getBytes(StandardCharsets.UTF_8));
+        return response.writeWith(Mono.just(buffer));
     }
-
 
     @Data
     public static class Config {
