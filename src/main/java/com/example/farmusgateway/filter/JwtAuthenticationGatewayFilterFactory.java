@@ -47,6 +47,14 @@ public class JwtAuthenticationGatewayFilterFactory extends AbstractGatewayFilter
             String jwt = authorizationHeader.replace("Bearer ", "");
             log.info("jwt: {}", jwt);
 
+            int index = request.getURI().toString().indexOf("/api");
+            String url = request.getURI().toString().substring(index);
+            log.info("url: {}", url);
+
+            if (url.equals("/api/user/reissue-token")) {
+                return chain.filter(exchange);
+            }
+
             try {
                 String subject = Jwts.parserBuilder().setSigningKey(secret).build()
                         .parseClaimsJws(jwt).getBody()
@@ -60,13 +68,7 @@ public class JwtAuthenticationGatewayFilterFactory extends AbstractGatewayFilter
                 request.mutate().header("user", decodedSubject).build();
 
                 // get url after endpoint
-                int index = request.getURI().toString().indexOf("/api");
-                String url = request.getURI().toString().substring(index);
-                log.info("url: {}", url);
 
-                if (url.equals("/api/user/reissue-token")) {
-                    return chain.filter(exchange);
-                }
 
                 return chain.filter(exchange);
             } catch (IllegalArgumentException e) {
