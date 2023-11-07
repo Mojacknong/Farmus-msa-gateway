@@ -8,6 +8,7 @@ import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 @EnableDiscoveryClient // eureka client
 public class FarmusGatewayApplication {
 
+
     public static void main(String[] args) {
         SpringApplication.run(FarmusGatewayApplication.class, args);
     }
