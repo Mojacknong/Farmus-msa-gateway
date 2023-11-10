@@ -84,6 +84,7 @@ jobs:
             key: ${{ secrets.SSH_PRIVATE_KEY }}
             envs: GITHUB_SHA
             script: |
+              
                 sudo docker rm fu-gateway
                 sudo docker pull minchogt/fu-gateway
                 docker-compose up -d gateway
