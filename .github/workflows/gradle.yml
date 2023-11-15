@@ -75,7 +75,6 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-
         ## deploy to production
       - name: Deploy to prod
         uses: appleboy/ssh-action@master
@@ -86,6 +85,7 @@ jobs:
             key: ${{ secrets.SSH_PRIVATE_KEY }}
             envs: GITHUB_SHA
             script: |
+              
                 sudo docker rm fu-gateway
                 sudo docker pull minchogt/fu-gateway
                 docker-compose up -d gateway
